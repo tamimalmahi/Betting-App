@@ -1,0 +1,28 @@
+import psycopg2
+import os
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+def get_db():
+    return psycopg2.connect(DATABASE_URL)
+
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute("""CREATE TABLE IF NOT EXISTS users(
+        id SERIAL PRIMARY KEY,
+        username TEXT UNIQUE,
+        password TEXT,
+        balance INTEGER DEFAULT 100
+    )""")
+
+    c.execute("""CREATE TABLE IF NOT EXISTS transactions(
+        id SERIAL PRIMARY KEY,
+        username TEXT,
+        type TEXT,
+        amount INTEGER
+    )""")
+
+    conn.commit()
+    conn.close()
