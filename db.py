@@ -10,18 +10,24 @@ def init_db():
     conn = get_db()
     c = conn.cursor()
 
+    # Users table
     c.execute("""CREATE TABLE IF NOT EXISTS users(
         id SERIAL PRIMARY KEY,
         username TEXT UNIQUE,
         password TEXT,
+        email TEXT,
+        dob TEXT,
         balance INTEGER DEFAULT 100
     )""")
 
+    # Transactions table with status
     c.execute("""CREATE TABLE IF NOT EXISTS transactions(
         id SERIAL PRIMARY KEY,
         username TEXT,
         type TEXT,
-        amount INTEGER
+        amount INTEGER,
+        status TEXT DEFAULT 'Pending',
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
     conn.commit()
