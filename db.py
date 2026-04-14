@@ -10,11 +10,11 @@ def init_db():
     conn = get_db()
     c = conn.cursor()
 
-    # Ei line duita database ke clear korbe jate notun column add hote pare
+    # Prothombar column mismatch fix korar jonno (Deploy hoye gele delete koro)
     c.execute("DROP TABLE IF EXISTS transactions CASCADE")
     c.execute("DROP TABLE IF EXISTS users CASCADE")
 
-    # Notun column (email, dob) shoho table toiri
+    # Users Table
     c.execute("""CREATE TABLE IF NOT EXISTS users(
         id SERIAL PRIMARY KEY,
         username TEXT UNIQUE,
@@ -24,6 +24,7 @@ def init_db():
         balance INTEGER DEFAULT 100
     )""")
 
+    # Transactions Table (With Status)
     c.execute("""CREATE TABLE IF NOT EXISTS transactions(
         id SERIAL PRIMARY KEY,
         username TEXT,
