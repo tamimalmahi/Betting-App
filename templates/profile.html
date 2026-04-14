@@ -1,0 +1,25 @@
+<h2>User Profile (ID: {{ user[0] }})</h2>
+<p>Username: {{ user[1] }} | Balance: ${{ user[4] }}</p>
+
+<form method="POST">
+    Email: <input type="email" name="email" value="{{ user[2] or '' }}">
+    DOB: <input type="date" name="dob" value="{{ user[3] or '' }}">
+    <button type="submit">Update Profile</button>
+</form>
+
+<hr>
+<h3>Request Deposit/Withdraw</h3>
+<form action="/submit_request" method="POST">
+    Type: <select name="type"><option value="deposit">Deposit</option><option value="withdraw">Withdraw</option></select>
+    Amount: <input type="number" name="amount" required>
+    <button type="submit">Send Request</button>
+</form>
+
+<hr>
+<h3>Transaction History</h3>
+<table border="1">
+    <tr><th>Type</th><th>Amount</th><th>Status</th><th>Date</th></tr>
+    {% for row in history %}
+    <tr><td>{{ row[0] }}</td><td>{{ row[1] }}</td><td>{{ row[2] }}</td><td>{{ row[3] }}</td></tr>
+    {% endfor %}
+</table>
