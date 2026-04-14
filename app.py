@@ -30,25 +30,25 @@ def login():
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
     if request.method == "POST":
-        admin_user = request.form["username"].strip()
-        admin_pass = request.form["password"].strip()
+        # Space avoid korar jonno .strip() use kora hoyeche
+        user = request.form.get("username", "").strip()
+        pw = request.form.get("password", "").strip()
         
-        # Manually check credentials if config fails
-        if admin_user == config.ADMIN_USERNAME and admin_pass == config.ADMIN_PASSWORD:
+        if user == config.ADMIN_USERNAME and pw == config.ADMIN_PASSWORD:
             session.clear()
-            session["admin_logged_in"] = True # Unique session key
-            return redirect(url_for("admin"))
+            session["admin"] = True
+            return redirect("/admin") # Sothik hole eikhane redirect hobe
         else:
-            return "Admin Login Failed! Check Username/Password."
+            return "Invalid Admin Credentials! <a href='/admin'>Try Again</a>"
 
-    if session.get("admin_logged_in"):
+    if "admin" in session:
         conn = get_db()
         c = conn.cursor()
         c.execute("SELECT id, username, type, amount, status FROM transactions WHERE status='Pending'")
         pending = c.fetchall()
         conn.close()
         return render_template("admin_panel.html", requests=pending)
-    
+
     return render_template("admin.html") # admin.html template ta login form thakbe
 
 @app.route("/admin/action/<int:req_id>/<string:status>")
