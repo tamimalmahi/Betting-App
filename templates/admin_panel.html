@@ -1,0 +1,15 @@
+<h2>Admin Panel - Pending Requests</h2>
+<table border="1">
+    <tr><th>User</th><th>Type</th><th>Amount</th><th>Actions</th></tr>
+    {% for req in requests %}
+    <tr>
+        <td>{{ req[1] }}</td><td>{{ req[2] }}</td><td>{{ req[3] }}</td>
+        <td>
+            <a href="/admin/action/{{ req[0] }}/Approved">Approve</a> | 
+            <a href="/admin/action/{{ req[0] }}/Rejected">Reject</a>
+        </td>
+    </tr>
+    {% endfor %}
+</table>
+<br>
+<a href="/logout">Logout</a>
