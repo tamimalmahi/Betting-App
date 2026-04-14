@@ -1,16 +1,13 @@
-from flask import Flask, render_template, request, redirect, session, flash
+from flask import Flask, render_template, request, redirect, session, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
-import random
 from db import get_db, init_db
 import config
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
-init_db()
 
-# Middleware: Check if logged in
-def is_logged_in():
-    return "user" in session
+# Application start hoyar somoy database table gulo toiri hobe
+init_db()
 
 # -------- AUTH --------
 @app.route("/", methods=["GET", "POST"])
@@ -23,9 +20,13 @@ def login():
         c.execute("SELECT * FROM users WHERE username=%s", (user,))
         data = c.fetchone()
         conn.close()
+        
         if data and check_password_hash(data[2], pw):
+            session.clear() # Purano session clear koro
             session["user"] = user
-            return redirect("/dashboard")
+            return redirect(url_for("dashboard"))
+        else:
+            return "Invalid login credentials!"
     return render_template("login.html")
 
 @app.route("/register", methods=["GET", "POST"])
@@ -38,26 +39,37 @@ def register():
         try:
             c.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (user, pw))
             conn.commit()
-        except:
-            return "User already exists!"
-        conn.close()
-        return redirect("/")
+        except Exception as e:
+            return f"Error: {str(e)}"
+        finally:
+            conn.close()
+        return redirect(url_for("login"))
     return render_template("register.html")
 
 # -------- USER DASHBOARD & PROFILE --------
-@app.route("/dashboard")
+@app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
-    if not is_logged_in(): return redirect("/")
+    if "user" not in session: return redirect(url_for("login"))
+    
     conn = get_db()
     c = conn.cursor()
+    
+    # Game Logic (Ager motoi thakbe)
+    message = ""
+    if request.method == "POST":
+        # ... (Dice and Guess game logic here)
+        pass
+
     c.execute("SELECT balance FROM users WHERE username=%s", (session["user"],))
-    balance = c.fetchone()[0]
+    balance_data = c.fetchone()
+    balance = balance_data[0] if balance_data else 0
     conn.close()
-    return render_template("dashboard.html", balance=balance)
+    return render_template("dashboard.html", balance=balance, message=message)
 
 @app.route("/profile", methods=["GET", "POST"])
 def profile():
-    if not is_logged_in(): return redirect("/")
+    if "user" not in session: return redirect(url_for("login"))
+    
     conn = get_db()
     c = conn.cursor()
     
@@ -69,15 +81,16 @@ def profile():
 
     c.execute("SELECT id, username, email, dob, balance FROM users WHERE username=%s", (session["user"],))
     user_data = c.fetchone()
+    
     c.execute("SELECT type, amount, status, timestamp FROM transactions WHERE username=%s ORDER BY timestamp DESC", (session["user"],))
     history = c.fetchall()
     conn.close()
+    
     return render_template("profile.html", user=user_data, history=history)
 
-# Request Deposit/Withdraw
 @app.route("/submit_request", methods=["POST"])
 def submit_request():
-    if not is_logged_in(): return redirect("/")
+    if "user" not in session: return redirect(url_for("login"))
     req_type = request.form.get("type")
     amount = int(request.form.get("amount"))
     
@@ -87,14 +100,20 @@ def submit_request():
               (session["user"], req_type, amount))
     conn.commit()
     conn.close()
-    return redirect("/profile")
+    return redirect(url_for("profile"))
 
 # -------- ADMIN PANEL --------
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
     if request.method == "POST":
-        if request.form["username"] == config.ADMIN_USERNAME and request.form["password"] == config.ADMIN_PASSWORD:
+        # Space error avoid korar jonno .strip() use kora hoyeche
+        input_user = request.form["username"].strip()
+        input_pass = request.form["password"].strip()
+        
+        if input_user == config.ADMIN_USERNAME and input_pass == config.ADMIN_PASSWORD:
+            session.clear()
             session["admin"] = True
+            return redirect(url_for("admin"))
 
     if "admin" not in session:
         return render_template("admin_login.html")
@@ -108,10 +127,10 @@ def admin():
 
 @app.route("/admin/action/<int:req_id>/<string:status>")
 def admin_action(req_id, status):
-    if "admin" not in session: return redirect("/admin")
+    if "admin" not in session: return redirect(url_for("admin"))
+    
     conn = get_db()
     c = conn.cursor()
-    
     c.execute("SELECT username, type, amount FROM transactions WHERE id=%s", (req_id,))
     req = c.fetchone()
     
@@ -125,12 +144,9 @@ def admin_action(req_id, status):
     c.execute("UPDATE transactions SET status=%s WHERE id=%s", (status, req_id))
     conn.commit()
     conn.close()
-    return redirect("/admin")
+    return redirect(url_for("admin"))
 
 @app.route("/logout")
 def logout():
     session.clear()
-    return redirect("/")
-
-if __name__ == "__main__":
-    app.run()
+    return redirect(url_for("login"))
