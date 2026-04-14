@@ -9,23 +9,20 @@ def get_db():
 def init_db():
     conn = get_db()
     c = conn.cursor()
-
-    # Prothombar column mismatch fix korar jonno (Deploy hoye gele delete koro)
+    # Purano table delete kore notun column shoho toiri koro
     c.execute("DROP TABLE IF EXISTS transactions CASCADE")
     c.execute("DROP TABLE IF EXISTS users CASCADE")
-
-    # Users Table
-    c.execute("""CREATE TABLE IF NOT EXISTS users(
+    
+    c.execute("""CREATE TABLE users(
         id SERIAL PRIMARY KEY,
         username TEXT UNIQUE,
         password TEXT,
-        email TEXT,
-        dob TEXT,
+        email TEXT DEFAULT '',
+        dob TEXT DEFAULT '',
         balance INTEGER DEFAULT 100
     )""")
 
-    # Transactions Table (With Status)
-    c.execute("""CREATE TABLE IF NOT EXISTS transactions(
+    c.execute("""CREATE TABLE transactions(
         id SERIAL PRIMARY KEY,
         username TEXT,
         type TEXT,
@@ -33,6 +30,5 @@ def init_db():
         status TEXT DEFAULT 'Pending',
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
-
     conn.commit()
     conn.close()
