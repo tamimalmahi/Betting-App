@@ -1,148 +1,95 @@
-from flask import Flask, render_template, request, redirect, session
+from flask import Flask, render_template, request, redirect, session, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 import random
-
 from db import get_db, init_db
 import config
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
-
 init_db()
 
-# -------- LOGIN --------
+# Middleware: Check if logged in
+def is_logged_in():
+    return "user" in session
+
+# -------- AUTH --------
 @app.route("/", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         user = request.form["username"]
         pw = request.form["password"]
-
         conn = get_db()
         c = conn.cursor()
         c.execute("SELECT * FROM users WHERE username=%s", (user,))
         data = c.fetchone()
         conn.close()
-
         if data and check_password_hash(data[2], pw):
             session["user"] = user
             return redirect("/dashboard")
-
     return render_template("login.html")
 
-# -------- REGISTER --------
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
         user = request.form["username"]
         pw = generate_password_hash(request.form["password"])
-
         conn = get_db()
         c = conn.cursor()
-
         try:
             c.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (user, pw))
             conn.commit()
         except:
             return "User already exists!"
-
         conn.close()
         return redirect("/")
-
     return render_template("register.html")
 
-# -------- DASHBOARD --------
-@app.route("/dashboard", methods=["GET", "POST"])
+# -------- USER DASHBOARD & PROFILE --------
+@app.route("/dashboard")
 def dashboard():
-    if "user" not in session:
-        return redirect("/")
-
+    if not is_logged_in(): return redirect("/")
     conn = get_db()
     c = conn.cursor()
-
     c.execute("SELECT balance FROM users WHERE username=%s", (session["user"],))
     balance = c.fetchone()[0]
+    conn.close()
+    return render_template("dashboard.html", balance=balance)
 
-    message = ""
-
+@app.route("/profile", methods=["GET", "POST"])
+def profile():
+    if not is_logged_in(): return redirect("/")
+    conn = get_db()
+    c = conn.cursor()
+    
     if request.method == "POST":
-        game = request.form["game"]
-        bet = int(request.form["bet"])
+        email = request.form.get("email")
+        dob = request.form.get("dob")
+        c.execute("UPDATE users SET email=%s, dob=%s WHERE username=%s", (email, dob, session["user"]))
+        conn.commit()
 
-        if bet <= 0 or bet > balance:
-            message = "Invalid bet!"
-        else:
-            if game == "dice":
-                dice = random.randint(1, 6)
-                if dice >= 4:
-                    balance += bet
-                    message = f"Dice {dice} → WIN"
-                else:
-                    balance -= bet
-                    message = f"Dice {dice} → LOSE"
-
-            elif game == "guess":
-                guess = int(request.form["guess"])
-                number = random.randint(1, 5)
-
-                if guess == number:
-                    balance += bet * 2
-                    message = f"Correct! ({number})"
-                else:
-                    balance -= bet
-                    message = f"Wrong! ({number})"
-
-            c.execute("UPDATE users SET balance=%s WHERE username=%s",
-                      (balance, session["user"]))
-            c.execute("INSERT INTO transactions (username, type, amount) VALUES (%s, %s, %s)",
-                      (session["user"], "game", bet))
-
-            conn.commit()
-
+    c.execute("SELECT id, username, email, dob, balance FROM users WHERE username=%s", (session["user"],))
+    user_data = c.fetchone()
+    c.execute("SELECT type, amount, status, timestamp FROM transactions WHERE username=%s ORDER BY timestamp DESC", (session["user"],))
+    history = c.fetchall()
     conn.close()
+    return render_template("profile.html", user=user_data, history=history)
 
-    return render_template("dashboard.html", balance=balance, message=message)
-
-# -------- DEPOSIT --------
-@app.route("/deposit", methods=["POST"])
-def deposit():
-    amount = int(request.form["amount"])
-
+# Request Deposit/Withdraw
+@app.route("/submit_request", methods=["POST"])
+def submit_request():
+    if not is_logged_in(): return redirect("/")
+    req_type = request.form.get("type")
+    amount = int(request.form.get("amount"))
+    
     conn = get_db()
     c = conn.cursor()
-
-    c.execute("UPDATE users SET balance = balance + %s WHERE username=%s",
-              (amount, session["user"]))
-    c.execute("INSERT INTO transactions (username, type, amount) VALUES (%s, %s, %s)",
-              (session["user"], "deposit", amount))
-
+    c.execute("INSERT INTO transactions (username, type, amount, status) VALUES (%s, %s, %s, 'Pending')",
+              (session["user"], req_type, amount))
     conn.commit()
     conn.close()
+    return redirect("/profile")
 
-    return redirect("/dashboard")
-
-# -------- WITHDRAW --------
-@app.route("/withdraw", methods=["POST"])
-def withdraw():
-    amount = int(request.form["amount"])
-
-    conn = get_db()
-    c = conn.cursor()
-
-    c.execute("SELECT balance FROM users WHERE username=%s", (session["user"],))
-    balance = c.fetchone()[0]
-
-    if amount <= balance:
-        c.execute("UPDATE users SET balance = balance - %s WHERE username=%s",
-                  (amount, session["user"]))
-        c.execute("INSERT INTO transactions (username, type, amount) VALUES (%s, %s, %s)",
-                  (session["user"], "withdraw", amount))
-
-    conn.commit()
-    conn.close()
-
-    return redirect("/dashboard")
-
-# -------- ADMIN --------
+# -------- ADMIN PANEL --------
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
     if request.method == "POST":
@@ -150,22 +97,36 @@ def admin():
             session["admin"] = True
 
     if "admin" not in session:
-        return render_template("admin.html")
+        return render_template("admin_login.html")
 
     conn = get_db()
     c = conn.cursor()
-
-    c.execute("SELECT SUM(balance) FROM users")
-    total_balance = c.fetchone()[0]
-
-    c.execute("SELECT * FROM transactions")
-    data = c.fetchall()
-
+    c.execute("SELECT id, username, type, amount, status FROM transactions WHERE status='Pending'")
+    pending = c.fetchall()
     conn.close()
+    return render_template("admin_panel.html", requests=pending)
 
-    return render_template("transactions.html", total_balance=total_balance, data=data)
+@app.route("/admin/action/<int:req_id>/<string:status>")
+def admin_action(req_id, status):
+    if "admin" not in session: return redirect("/admin")
+    conn = get_db()
+    c = conn.cursor()
+    
+    c.execute("SELECT username, type, amount FROM transactions WHERE id=%s", (req_id,))
+    req = c.fetchone()
+    
+    if req and status == "Approved":
+        username, t_type, amount = req
+        if t_type == "deposit":
+            c.execute("UPDATE users SET balance = balance + %s WHERE username=%s", (amount, username))
+        elif t_type == "withdraw":
+            c.execute("UPDATE users SET balance = balance - %s WHERE username=%s", (amount, username))
+    
+    c.execute("UPDATE transactions SET status=%s WHERE id=%s", (status, req_id))
+    conn.commit()
+    conn.close()
+    return redirect("/admin")
 
-# -------- LOGOUT --------
 @app.route("/logout")
 def logout():
     session.clear()
