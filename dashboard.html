@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row">
+    <div class="col-md-4">
+        <div class="balance-card">
+            <h5>Your Balance</h5>
+            <h2 class="fw-bold">${{ balance }}</h2>
+        </div>
+        
+        <div class="card p-3 mb-3">
+            <h6>Deposit Money</h6>
+            <form action="/deposit" method="POST" class="d-flex gap-2">
+                <input type="number" name="amount" class="form-control" placeholder="Amount" required>
+                <button class="btn btn-success">Add</button>
+            </form>
+        </div>
+
+        <div class="card p-3">
+            <h6>Withdraw Money</h6>
+            <form action="/withdraw" method="POST" class="d-flex gap-2">
+                <input type="number" name="amount" class="form-control" placeholder="Amount" required>
+                <button class="btn btn-danger">Get</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card p-4">
+            <h4 class="mb-4">Play & Win</h4>
+            {% if message %}
+                <div class="alert alert-info">{{ message }}</div>
+            {% endif %}
+            
+            <div class="row">
+                <div class="col-md-6 mb-3">
+                    <div class="p-3 border border-secondary rounded text-center">
+                        <h5>🎲 Dice Roll (4-6 Win)</h5>
+                        <form method="POST">
+                            <input type="hidden" name="game" value="dice">
+                            <input type="number" name="bet" class="form-control mb-2" placeholder="Bet Amount" required>
+                            <button class="btn btn-primary w-100">Roll Dice</button>
+                        </form>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="p-3 border border-secondary rounded text-center">
+                        <h5>🎯 Guess Number (1-5)</h5>
+                        <form method="POST">
+                            <input type="hidden" name="game" value="guess">
+                            <input type="number" name="bet" class="form-control mb-2" placeholder="Bet Amount" required>
+                            <input type="number" name="guess" class="form-control mb-2" min="1" max="5" placeholder="Your Guess" required>
+                            <button class="btn btn-primary w-100">Guess</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
