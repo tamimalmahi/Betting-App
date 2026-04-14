@@ -1,15 +1,62 @@
-<h2>Admin Panel - Pending Requests</h2>
-<table border="1">
-    <tr><th>User</th><th>Type</th><th>Amount</th><th>Actions</th></tr>
-    {% for req in requests %}
-    <tr>
-        <td>{{ req[1] }}</td><td>{{ req[2] }}</td><td>{{ req[3] }}</td>
-        <td>
-            <a href="/admin/action/{{ req[0] }}/Approved">Approve</a> | 
-            <a href="/admin/action/{{ req[0] }}/Rejected">Reject</a>
-        </td>
-    </tr>
-    {% endfor %}
-</table>
-<br>
-<a href="/logout">Logout</a>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - BET-PRO</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background-color: #0d1117; color: #c9d1d9; margin: 0; padding: 20px; }
+        .container { max-width: 900px; margin: auto; background: #161b22; padding: 20px; border-radius: 10px; border: 1px solid #30363d; }
+        h2 { color: #58a6ff; border-bottom: 1px solid #30363d; padding-bottom: 10px; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; background: #0d1117; }
+        th, td { padding: 15px; text-align: left; border-bottom: 1px solid #30363d; }
+        th { background-color: #21262d; color: #58a6ff; text-transform: uppercase; font-size: 13px; }
+        
+        .btn { padding: 8px 15px; border-radius: 5px; text-decoration: none; font-weight: bold; font-size: 13px; display: inline-block; }
+        .btn-approve { background-color: #238636; color: white; margin-right: 5px; }
+        .btn-approve:hover { background-color: #2ea043; }
+        .btn-reject { background-color: #da3633; color: white; }
+        .btn-reject:hover { background-color: #f85149; }
+        
+        .no-data { text-align: center; padding: 40px; color: #8b949e; }
+        .logout-btn { color: #f85149; text-decoration: none; float: right; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <a href="/logout" class="logout-btn">Logout</a>
+    <h2>Admin Dashboard - Pending Requests</h2>
+
+    <table>
+        <thead>
+            <tr>
+                <th>User</th>
+                <th>Type</th>
+                <th>Amount</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for req in requests %}
+            <tr>
+                <td style="font-weight: bold;">{{ req[1] }}</td>
+                <td style="text-transform: capitalize;">{{ req[2] }}</td>
+                <td style="color: #3fb950;">${{ req[3] }}</td>
+                <td>
+                    <a href="/admin/action/{{ req[0] }}/Approved" class="btn btn-approve">Approve</a>
+                    <a href="/admin/action/{{ req[0] }}/Rejected" class="btn btn-reject">Reject</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="4" class="no-data">No pending requests at the moment.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+</body>
+</html>
