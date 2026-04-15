@@ -150,6 +150,38 @@ def withdraw():
 
     return redirect("/dashboard")
 
+# -------- PROFILE --------
+@app.route("/profile")
+def profile():
+    if "user" not in session:
+        return redirect("/")
+
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute("SELECT username, balance FROM users WHERE username=%s", (session["user"],))
+    user_data = c.fetchone()
+
+    conn.close()
+
+    return render_template("profile.html", username=user_data[0], balance=user_data[1])
+
+# -------- HISTORY --------
+@app.route("/history")
+def history():
+    if "user" not in session:
+        return redirect("/")
+
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute("SELECT type, amount, id FROM transactions WHERE username=%s ORDER BY id DESC", (session["user"],))
+    transactions = c.fetchall()
+
+    conn.close()
+
+    return render_template("history.html", transactions=transactions)
+
 # -------- ADMIN --------
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
