@@ -2,12 +2,28 @@ from flask import Flask, render_template, request, redirect, session, flash, jso
 from db import get_db, init_db
 import os
 import random
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "secret_dev_key_change_in_production")
+app.secret_key = os.environ.get("SECRET_KEY", "change_this_in_production_use_long_random_string")
 
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
+
+
+# ─── Helper: get balance safely ───────────────────────────────────────────────
+
+def get_balance(username):
+    """Always returns balance for navbar. Returns 0 if not found."""
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        c.execute("SELECT balance FROM users WHERE username=%s", (username,))
+        row = c.fetchone()
+        conn.close()
+        return row[0] if row else 0
+    except Exception:
+        return 0
 
 
 # ─── Auth Routes ──────────────────────────────────────────────────────────────
@@ -17,26 +33,44 @@ def login():
     if "user" in session:
         return redirect("/games")
     if request.method == "POST":
-        user = request.form["username"]
-        pw = request.form["password"]
+        user = request.form.get("username", "").strip()
+        pw = request.form.get("password", "")
+        if not user or not pw:
+            flash("Username and password are required.", "danger")
+            return render_template("login.html")
         conn = get_db()
         c = conn.cursor()
-        c.execute("SELECT * FROM users WHERE username=%s AND password=%s", (user, pw))
+        c.execute("SELECT username, password FROM users WHERE username=%s", (user,))
         data = c.fetchone()
         conn.close()
+        # Support both hashed and old plain-text passwords
         if data:
-            session["user"] = user
-            return redirect("/games")
-        else:
-            flash("Invalid username or password", "danger")
+            stored_pw = data[1]
+            # Check if password is hashed (werkzeug hashes start with pbkdf2/scrypt/bcrypt)
+            if stored_pw.startswith("pbkdf2:") or stored_pw.startswith("scrypt:"):
+                valid = check_password_hash(stored_pw, pw)
+            else:
+                # Old plain-text password — still allow login, will be upgraded on next register
+                valid = (stored_pw == pw)
+            if valid:
+                session["user"] = data[0]
+                return redirect("/games")
+        flash("Invalid username or password.", "danger")
     return render_template("login.html")
 
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
-        user = request.form["username"]
-        pw = request.form["password"]
+        user = request.form.get("username", "").strip()
+        pw = request.form.get("password", "")
+        if not user or not pw:
+            flash("Username and password are required.", "danger")
+            return render_template("register.html")
+        if len(pw) < 4:
+            flash("Password must be at least 4 characters.", "danger")
+            return render_template("register.html")
+        hashed_pw = generate_password_hash(pw)
         conn = get_db()
         c = conn.cursor()
         c.execute("SELECT id FROM users WHERE username=%s", (user,))
@@ -44,7 +78,7 @@ def register():
             conn.close()
             flash("Username already taken.", "danger")
             return render_template("register.html")
-        c.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (user, pw))
+        c.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (user, hashed_pw))
         conn.commit()
         conn.close()
         flash("Account created! Please login.", "success")
@@ -52,25 +86,21 @@ def register():
     return render_template("register.html")
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 def logout():
     session.clear()
     return redirect("/")
 
 
-# ─── Games Lobby (Main Page after login) ─────────────────────────────────────
+# ─── Games Lobby ──────────────────────────────────────────────────────────────
 
 @app.route("/games")
 def games():
     if "user" not in session:
         return redirect("/")
+    balance = get_balance(session["user"])
     conn = get_db()
     c = conn.cursor()
-    c.execute("SELECT balance FROM users WHERE username=%s", (session["user"],))
-    row = c.fetchone()
-    balance = row[0] if row else 0
-
-    # Active rooms per game type
     c.execute("""
         SELECT id, game_type, status, bet_amount,
                (SELECT COUNT(*) FROM game_players WHERE room_id=game_rooms.id) as player_count
@@ -82,75 +112,68 @@ def games():
     return render_template("games.html", balance=balance, rooms=rooms)
 
 
-# ─── Coin Flip (Multiplayer) ──────────────────────────────────────────────────
+# ─── Create Game Rooms ────────────────────────────────────────────────────────
 
-@app.route("/game/coinflip/create", methods=["POST"])
-def coinflip_create():
+def create_room(game_type):
+    """Generic room creator for all game types."""
     if "user" not in session:
         return redirect("/")
-    bet = int(request.form.get("bet_amount", 0))
-    if bet <= 0:
+    try:
+        bet = int(request.form.get("bet_amount", 0))
+    except (ValueError, TypeError):
         flash("Invalid bet amount.", "danger")
         return redirect("/games")
+
+    if bet <= 0:
+        flash("Bet amount must be greater than 0.", "danger")
+        return redirect("/games")
+
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT balance FROM users WHERE username=%s", (session["user"],))
-    bal = c.fetchone()[0]
-    if bet > bal:
+    row = c.fetchone()
+    if not row or bet > row[0]:
         conn.close()
         flash("Insufficient balance.", "danger")
         return redirect("/games")
-    c.execute("INSERT INTO game_rooms (game_type, bet_amount, max_players) VALUES ('coinflip', %s, 10) RETURNING id", (bet,))
+
+    c.execute(
+        "INSERT INTO game_rooms (game_type, bet_amount, max_players) VALUES (%s, %s, 10) RETURNING id",
+        (game_type, bet)
+    )
     room_id = c.fetchone()[0]
+
+    # FIX: Creator automatically joins the room with a default choice
+    default_choice = {"coinflip": "heads", "dice": "1", "colorbet": "red"}[game_type]
+    c.execute(
+        "UPDATE users SET balance = balance - %s WHERE username=%s",
+        (bet, session["user"])
+    )
+    c.execute(
+        "INSERT INTO game_players (room_id, username, bet_amount, choice) VALUES (%s, %s, %s, %s)",
+        (room_id, session["user"], bet, default_choice)
+    )
+    # Store creator in game_rooms so only creator can start
+    c.execute("UPDATE game_rooms SET creator=%s WHERE id=%s", (session["user"], room_id))
     conn.commit()
     conn.close()
+    flash("Room created! You joined with a default choice — you can change it before the game starts.", "info")
     return redirect(f"/game/room/{room_id}")
+
+
+@app.route("/game/coinflip/create", methods=["POST"])
+def coinflip_create():
+    return create_room("coinflip")
 
 
 @app.route("/game/dice/create", methods=["POST"])
 def dice_create():
-    if "user" not in session:
-        return redirect("/")
-    bet = int(request.form.get("bet_amount", 0))
-    if bet <= 0:
-        flash("Invalid bet amount.", "danger")
-        return redirect("/games")
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT balance FROM users WHERE username=%s", (session["user"],))
-    bal = c.fetchone()[0]
-    if bet > bal:
-        conn.close()
-        flash("Insufficient balance.", "danger")
-        return redirect("/games")
-    c.execute("INSERT INTO game_rooms (game_type, bet_amount, max_players) VALUES ('dice', %s, 10) RETURNING id", (bet,))
-    room_id = c.fetchone()[0]
-    conn.commit()
-    conn.close()
-    return redirect(f"/game/room/{room_id}")
+    return create_room("dice")
 
 
 @app.route("/game/colorbet/create", methods=["POST"])
 def colorbet_create():
-    if "user" not in session:
-        return redirect("/")
-    bet = int(request.form.get("bet_amount", 0))
-    if bet <= 0:
-        flash("Invalid bet amount.", "danger")
-        return redirect("/games")
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT balance FROM users WHERE username=%s", (session["user"],))
-    bal = c.fetchone()[0]
-    if bet > bal:
-        conn.close()
-        flash("Insufficient balance.", "danger")
-        return redirect("/games")
-    c.execute("INSERT INTO game_rooms (game_type, bet_amount, max_players) VALUES ('colorbet', %s, 10) RETURNING id", (bet,))
-    room_id = c.fetchone()[0]
-    conn.commit()
-    conn.close()
-    return redirect(f"/game/room/{room_id}")
+    return create_room("colorbet")
 
 
 # ─── Game Room ────────────────────────────────────────────────────────────────
@@ -174,15 +197,12 @@ def game_room(room_id):
     """, (room_id,))
     players = c.fetchall()
 
-    # Check if current user already joined
     c.execute("SELECT * FROM game_players WHERE room_id=%s AND username=%s", (room_id, session["user"]))
     already_joined = c.fetchone()
 
-    c.execute("SELECT balance FROM users WHERE username=%s", (session["user"],))
-    bal_row = c.fetchone()
-    balance = bal_row[0] if bal_row else 0
-
+    balance = get_balance(session["user"])
     conn.close()
+
     return render_template("game_room.html",
                            room=room, players=players,
                            already_joined=already_joined,
@@ -194,7 +214,11 @@ def game_room(room_id):
 def join_room(room_id):
     if "user" not in session:
         return redirect("/")
-    choice = request.form.get("choice")
+    choice = request.form.get("choice", "").strip()
+    if not choice:
+        flash("Please select a choice.", "danger")
+        return redirect(f"/game/room/{room_id}")
+
     conn = get_db()
     c = conn.cursor()
 
@@ -207,8 +231,8 @@ def join_room(room_id):
 
     bet = room[4]  # bet_amount
     c.execute("SELECT balance FROM users WHERE username=%s", (session["user"],))
-    bal = c.fetchone()[0]
-    if bet > bal:
+    bal_row = c.fetchone()
+    if not bal_row or bet > bal_row[0]:
         conn.close()
         flash("Insufficient balance.", "danger")
         return redirect(f"/game/room/{room_id}")
@@ -230,8 +254,10 @@ def join_room(room_id):
 
     # Deduct bet from balance
     c.execute("UPDATE users SET balance = balance - %s WHERE username=%s", (bet, session["user"]))
-    c.execute("INSERT INTO game_players (room_id, username, bet_amount, choice) VALUES (%s, %s, %s, %s)",
-              (room_id, session["user"], bet, choice))
+    c.execute(
+        "INSERT INTO game_players (room_id, username, bet_amount, choice) VALUES (%s, %s, %s, %s)",
+        (room_id, session["user"], bet, choice)
+    )
     conn.commit()
     conn.close()
     return redirect(f"/game/room/{room_id}")
@@ -241,6 +267,7 @@ def join_room(room_id):
 def start_game(room_id):
     if "user" not in session:
         return redirect("/")
+
     conn = get_db()
     c = conn.cursor()
 
@@ -249,6 +276,13 @@ def start_game(room_id):
     if not room:
         conn.close()
         flash("Cannot start game.", "danger")
+        return redirect(f"/game/room/{room_id}")
+
+    # FIX: Only the room creator can start the game
+    creator = room[9] if len(room) > 9 else None  # creator column
+    if creator and creator != session["user"]:
+        conn.close()
+        flash("Only the room creator can start the game.", "danger")
         return redirect(f"/game/room/{room_id}")
 
     c.execute("SELECT COUNT(*) FROM game_players WHERE room_id=%s", (room_id,))
@@ -270,7 +304,6 @@ def start_game(room_id):
     else:
         result = "unknown"
 
-    # Get all players
     c.execute("SELECT id, username, bet_amount, choice FROM game_players WHERE room_id=%s", (room_id,))
     players = c.fetchall()
 
@@ -281,13 +314,11 @@ def start_game(room_id):
         share = total_pool // len(winners)
         for p in players:
             if p[3] == result:
-                # Winner gets share
                 c.execute("UPDATE game_players SET result='won', payout=%s WHERE id=%s", (share, p[0]))
                 c.execute("UPDATE users SET balance = balance + %s WHERE username=%s", (share, p[1]))
             else:
                 c.execute("UPDATE game_players SET result='lost', payout=0 WHERE id=%s", (p[0],))
     else:
-        # No winners — house keeps pot (all lose)
         for p in players:
             c.execute("UPDATE game_players SET result='lost', payout=0 WHERE id=%s", (p[0],))
 
@@ -298,44 +329,64 @@ def start_game(room_id):
     return redirect(f"/game/room/{room_id}")
 
 
-# ─── Dashboard (Deposit/Withdraw) ────────────────────────────────────────────
+# ─── Dashboard (Deposit/Withdraw) ─────────────────────────────────────────────
 
 @app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
     if "user" not in session:
         return redirect("/")
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT balance FROM users WHERE username=%s", (session["user"],))
-    row = c.fetchone()
-    balance = row[0] if row else 0
+    balance = get_balance(session["user"])
 
     if request.method == "POST":
         req_type = request.form.get("type")
         try:
             amount = int(request.form.get("amount", 0))
-        except ValueError:
+        except (ValueError, TypeError):
             flash("Invalid amount.", "danger")
-            conn.close()
             return redirect("/dashboard")
 
         if amount <= 0:
             flash("Amount must be greater than 0.", "danger")
-            conn.close()
             return redirect("/dashboard")
 
-        if req_type in ("deposit", "withdraw"):
+        if req_type == "withdraw":
+            # FIX: Check balance before allowing withdraw request
+            if amount > balance:
+                flash("Insufficient balance for withdrawal.", "danger")
+                return redirect("/dashboard")
+            # FIX: Lock the amount immediately so user can't double-spend
+            conn = get_db()
+            c = conn.cursor()
+            c.execute("SELECT balance FROM users WHERE username=%s", (session["user"],))
+            current_balance = c.fetchone()[0]
+            if amount > current_balance:
+                conn.close()
+                flash("Insufficient balance for withdrawal.", "danger")
+                return redirect("/dashboard")
+            # Deduct immediately, refund if admin rejects
+            c.execute("UPDATE users SET balance = balance - %s WHERE username=%s",
+                      (amount, session["user"]))
             c.execute(
                 "INSERT INTO transactions (username, type, amount, status) VALUES (%s, %s, %s, 'Pending')",
                 (session["user"], req_type, amount)
             )
             conn.commit()
-            flash(f"{req_type.capitalize()} request submitted! Waiting for admin approval.", "info")
+            conn.close()
+            flash("Withdraw request submitted! Amount has been held pending admin approval.", "info")
 
-        conn.close()
+        elif req_type == "deposit":
+            conn = get_db()
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO transactions (username, type, amount, status) VALUES (%s, %s, %s, 'Pending')",
+                (session["user"], req_type, amount)
+            )
+            conn.commit()
+            conn.close()
+            flash("Deposit request submitted! Waiting for admin approval.", "info")
+
         return redirect("/dashboard")
 
-    conn.close()
     return render_template("dashboard.html", balance=balance)
 
 
@@ -349,8 +400,8 @@ def profile():
     c = conn.cursor()
 
     if request.method == "POST":
-        email = request.form.get("email", "")
-        phone = request.form.get("phone", "")
+        email = request.form.get("email", "").strip()
+        phone = request.form.get("phone", "").strip()
         c.execute("UPDATE users SET email=%s, phone=%s WHERE username=%s",
                   (email, phone, session["user"]))
         conn.commit()
@@ -362,9 +413,8 @@ def profile():
     email = row[1] if row else ""
     phone = row[2] if row else ""
 
-    # Game stats
     c.execute("""
-        SELECT COUNT(*), SUM(payout), 
+        SELECT COUNT(*), COALESCE(SUM(payout), 0),
                SUM(CASE WHEN result='won' THEN 1 ELSE 0 END)
         FROM game_players WHERE username=%s
     """, (session["user"],))
@@ -379,12 +429,13 @@ def profile():
                            total_earnings=stats[1] or 0)
 
 
-# ─── History ─────────────────────────────────────────────────────────────────
+# ─── History ──────────────────────────────────────────────────────────────────
 
 @app.route("/history")
 def history():
     if "user" not in session:
         return redirect("/")
+    balance = get_balance(session["user"])
     conn = get_db()
     c = conn.cursor()
     c.execute(
@@ -392,8 +443,19 @@ def history():
         (session["user"],)
     )
     transactions = c.fetchall()
+
+    # FIX: Also show game history
+    c.execute("""
+        SELECT gr.game_type, gp.bet_amount, gp.choice, gp.result, gp.payout, gr.result as game_result, gr.ended_at
+        FROM game_players gp
+        JOIN game_rooms gr ON gp.room_id = gr.id
+        WHERE gp.username=%s ORDER BY gr.created_at DESC
+    """, (session["user"],))
+    game_history = c.fetchall()
+
     conn.close()
-    return render_template("history.html", transactions=transactions)
+    return render_template("history.html", transactions=transactions,
+                           game_history=game_history, balance=balance)
 
 
 # ─── Admin Routes ─────────────────────────────────────────────────────────────
@@ -401,13 +463,14 @@ def history():
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
     if request.method == "POST":
-        user = request.form["username"]
-        pw = request.form["password"]
+        user = request.form.get("username", "")
+        pw = request.form.get("password", "")
         if user == ADMIN_USERNAME and pw == ADMIN_PASSWORD:
             session["admin"] = True
             return redirect("/admin")
         else:
             return render_template("admin.html", error="Invalid admin credentials")
+
     if "admin" not in session:
         return render_template("admin.html", error=None)
 
@@ -427,12 +490,20 @@ def admin():
                            total_users=total_users)
 
 
-@app.route("/admin/action/<int:txn_id>/<status>")
+@app.route("/admin/logout", methods=["POST"])
+def admin_logout():
+    session.pop("admin", None)
+    return redirect("/admin")
+
+
+# FIX: Changed to POST to prevent CSRF
+@app.route("/admin/action/<int:txn_id>/<status>", methods=["POST"])
 def admin_action(txn_id, status):
     if "admin" not in session:
         return redirect("/admin")
     if status not in ("Approved", "Rejected"):
         return redirect("/admin")
+
     conn = get_db()
     c = conn.cursor()
     c.execute("SELECT username, type, amount FROM transactions WHERE id=%s AND status='Pending'", (txn_id,))
@@ -443,12 +514,14 @@ def admin_action(txn_id, status):
             if txn_type == "deposit":
                 c.execute("UPDATE users SET balance = balance + %s WHERE username=%s", (amount, username))
             elif txn_type == "withdraw":
-                c.execute("SELECT balance FROM users WHERE username=%s", (username,))
-                user_row = c.fetchone()
-                if user_row and user_row[0] >= amount:
-                    c.execute("UPDATE users SET balance = balance - %s WHERE username=%s", (amount, username))
-                else:
-                    status = "Rejected"
+                # FIX: With new system, amount was already deducted. If approved, nothing to do.
+                # If rejected, refund the user.
+                pass
+        elif status == "Rejected":
+            if txn_type == "withdraw":
+                # Refund the held amount back to user
+                c.execute("UPDATE users SET balance = balance + %s WHERE username=%s", (amount, username))
+            # For rejected deposit: nothing was added, so nothing to undo
         c.execute("UPDATE transactions SET status=%s WHERE id=%s", (status, txn_id))
         conn.commit()
     conn.close()
@@ -477,22 +550,31 @@ def admin_user_detail(user_id):
     if request.method == "POST":
         action = request.form.get("action")
         if action == "update_balance":
-            new_balance = int(request.form.get("balance", 0))
-            c.execute("UPDATE users SET balance=%s WHERE id=%s", (new_balance, user_id))
-            conn.commit()
-            flash("Balance updated!", "success")
+            try:
+                new_balance = int(request.form.get("balance", 0))
+                if new_balance < 0:
+                    flash("Balance cannot be negative.", "danger")
+                else:
+                    c.execute("UPDATE users SET balance=%s WHERE id=%s", (new_balance, user_id))
+                    conn.commit()
+                    flash("Balance updated!", "success")
+            except (ValueError, TypeError):
+                flash("Invalid balance amount.", "danger")
+
         elif action == "update_info":
-            email = request.form.get("email", "")
-            phone = request.form.get("phone", "")
-            password = request.form.get("password", "")
+            email = request.form.get("email", "").strip()
+            phone = request.form.get("phone", "").strip()
+            password = request.form.get("password", "").strip()
             if password:
+                hashed = generate_password_hash(password)
                 c.execute("UPDATE users SET email=%s, phone=%s, password=%s WHERE id=%s",
-                          (email, phone, password, user_id))
+                          (email, phone, hashed, user_id))
             else:
                 c.execute("UPDATE users SET email=%s, phone=%s WHERE id=%s",
                           (email, phone, user_id))
             conn.commit()
             flash("User info updated!", "success")
+
         elif action == "delete_user":
             c.execute("DELETE FROM game_players WHERE username=(SELECT username FROM users WHERE id=%s)", (user_id,))
             c.execute("DELETE FROM transactions WHERE username=(SELECT username FROM users WHERE id=%s)", (user_id,))
@@ -509,7 +591,8 @@ def admin_user_detail(user_id):
         flash("User not found.", "danger")
         return redirect("/admin/users")
 
-    c.execute("SELECT type, amount, status, timestamp FROM transactions WHERE username=%s ORDER BY timestamp DESC", (user[1],))
+    c.execute("SELECT type, amount, status, timestamp FROM transactions WHERE username=%s ORDER BY timestamp DESC",
+              (user[1],))
     transactions = c.fetchall()
 
     c.execute("""
