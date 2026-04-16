@@ -1,45 +1,42 @@
 from flask import Flask, render_template, request, redirect, session
-import mysql.connector
+import sqlite3
 
 app = Flask(__name__)
 app.secret_key = "secret123"
 
-# DB connection
+# DB
 def get_db():
-    return mysql.connector.connect(
-        host="localhost",
-        user="root",
-        password="",
-        database="betting_app"
-    )
+    conn = sqlite3.connect("database.db")
+    conn.row_factory = sqlite3.Row
+    return conn
 
-# init DB
+# INIT DB
 def init_db():
     conn = get_db()
     c = conn.cursor()
 
     c.execute("""
     CREATE TABLE IF NOT EXISTS users (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        username VARCHAR(50),
-        password VARCHAR(50),
-        balance INT DEFAULT 0
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT,
+        password TEXT,
+        balance INTEGER DEFAULT 0
     )
     """)
 
     c.execute("""
     CREATE TABLE IF NOT EXISTS transactions (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        username VARCHAR(50),
-        type VARCHAR(20),
-        amount INT
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT,
+        type TEXT,
+        amount INTEGER
     )
     """)
 
     conn.commit()
     conn.close()
 
-# ---------------- REGISTER ----------------
+# REGISTER
 @app.route("/", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -49,7 +46,7 @@ def register():
         conn = get_db()
         c = conn.cursor()
 
-        c.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (user, pw))
+        c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (user, pw))
         conn.commit()
         conn.close()
 
@@ -57,7 +54,7 @@ def register():
 
     return render_template("register.html")
 
-# ---------------- LOGIN ----------------
+# LOGIN
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -67,7 +64,7 @@ def login():
         conn = get_db()
         c = conn.cursor()
 
-        c.execute("SELECT * FROM users WHERE username=%s AND password=%s", (user, pw))
+        c.execute("SELECT * FROM users WHERE username=? AND password=?", (user, pw))
         data = c.fetchone()
 
         conn.close()
@@ -78,7 +75,7 @@ def login():
 
     return render_template("login.html")
 
-# ---------------- DASHBOARD ----------------
+# DASHBOARD
 @app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
     if "user" not in session:
@@ -87,25 +84,24 @@ def dashboard():
     conn = get_db()
     c = conn.cursor()
 
-    c.execute("SELECT balance FROM users WHERE username=%s", (session["user"],))
-    balance = c.fetchone()[0]
+    c.execute("SELECT balance FROM users WHERE username=?", (session["user"],))
+    balance = c.fetchone()["balance"]
 
-    # HANDLE DEPOSIT / WITHDRAW
     if request.method == "POST":
         req_type = request.form.get("type")
         amount = int(request.form.get("amount"))
 
         if req_type == "deposit":
-            c.execute("UPDATE users SET balance = balance + %s WHERE username=%s",
+            c.execute("UPDATE users SET balance = balance + ? WHERE username=?",
                       (amount, session["user"]))
-            c.execute("INSERT INTO transactions (username, type, amount) VALUES (%s, %s, %s)",
+            c.execute("INSERT INTO transactions (username, type, amount) VALUES (?, ?, ?)",
                       (session["user"], "deposit", amount))
 
         elif req_type == "withdraw":
             if amount <= balance:
-                c.execute("UPDATE users SET balance = balance - %s WHERE username=%s",
+                c.execute("UPDATE users SET balance = balance - ? WHERE username=?",
                           (amount, session["user"]))
-                c.execute("INSERT INTO transactions (username, type, amount) VALUES (%s, %s, %s)",
+                c.execute("INSERT INTO transactions (username, type, amount) VALUES (?, ?, ?)",
                           (session["user"], "withdraw", amount))
 
         conn.commit()
@@ -114,7 +110,7 @@ def dashboard():
     conn.close()
     return render_template("dashboard.html", balance=balance)
 
-# ---------------- ADMIN ----------------
+# ADMIN
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
     if request.method == "POST":
@@ -138,13 +134,13 @@ def admin():
 
     return render_template("transactions.html", data=data)
 
-# ---------------- LOGOUT ----------------
+# LOGOUT
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/login")
 
-# ---------------- RUN ----------------
+# RUN
 if __name__ == "__main__":
     init_db()
-    app.run(debug=True)
+    app.run()
