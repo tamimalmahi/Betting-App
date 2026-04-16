@@ -1,103 +1,17 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard - BET-PRO</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0d1117; color: white; margin: 0; }
-        .navbar { display: flex; justify-content: space-between; padding: 20px 50px; background: #161b22; }
-        .navbar a { color: #58a6ff; text-decoration: none; margin-left: 20px; }
-        
-        .container { display: grid; grid-template-columns: 1fr 2fr; gap: 20px; padding: 40px 50px; }
-        .card { background: #161b22; padding: 20px; border-radius: 12px; border: 1px solid #30363d; }
-        
-        .balance-card { background: linear-gradient(135deg, #238636, #2ea043); text-align: center; }
-        .balance-card h2 { font-size: 1.2rem; margin: 0; }
-        .balance-card p { font-size: 2.5rem; font-weight: bold; margin: 10px 0; }
+<h2>Welcome {{session['user']}}</h2>
+<h3>Balance: {{balance}}</h3>
 
-        .input-group { margin-bottom: 15px; }
-        input, select { width: 100%; padding: 10px; margin-top: 5px; background: #0d1117; border: 1px solid #30363d; color: white; border-radius: 6px; box-sizing: border-box; }
-        
-        .btn { width: 100%; padding: 10px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: 10px; }
-        .btn-deposit { background: #238636; color: white; }
-        .btn-withdraw { background: #da3633; color: white; }
-        .btn-game { background: #1f6feb; color: white; }
-        
-        .games-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-        .game-box { background: #21262d; padding: 15px; border-radius: 8px; border: 1px solid #30363d; }
-    </style>
-</head>
-<body>
+<form method="POST">
+    <label>Type:</label>
+    <select name="type">
+        <option value="deposit">Deposit</option>
+        <option value="withdraw">Withdraw</option>
+    </select>
 
-<div class="navbar">
-    <div style="font-weight: bold; font-size: 1.5rem;"><i class="fas fa-dice"></i> BET-PRO</div>
-    <div>
-        <a href="/dashboard">Dashboard</a>
-        <a href="/profile">Profile & History</a>
-        <a href="/logout" style="color: #f85149;">Logout</a>
-    </div>
-</div>
+    <label>Amount:</label>
+    <input type="number" name="amount" required>
 
-<div class="container">
-    <div class="side-bar">
-        <div class="card balance-card">
-            <h2>Your Balance</h2>
-            <p>${{ balance }}</p>
-        </div>
+    <button type="submit">Submit</button>
+</form>
 
-        <br>
-
-        <div class="card">
-            <h3>Request Transaction</h3>
-            <form action="/submit_request" method="POST">
-                <div class="input-group">
-                    <label>Action Type</label>
-                    <select name="type">
-                        <option value="deposit">Deposit Money</option>
-                        <option value="withdraw">Withdraw Money</option>
-                    </select>
-                </div>
-                <div class="input-group">
-                    <label>Amount</label>
-                    <input type="number" name="amount" placeholder="Enter amount" required min="1">
-                </div>
-                <button type="submit" class="btn btn-deposit">Send Request to Admin</button>
-            </form>
-            <p style="font-size: 12px; color: #8b949e; margin-top: 10px;">* Requests will be processed by Admin.</p>
-        </div>
-    </div>
-
-    <div class="main-content">
-        <div class="card">
-            <h3>Play & Win</h3>
-            <div class="games-grid">
-                <div class="game-box">
-                    <h4><i class="fas fa-dice-five"></i> Dice Roll (4-6 Win)</h4>
-                    <form action="/dashboard" method="POST">
-                        <input type="hidden" name="game" value="dice">
-                        <input type="number" name="bet" placeholder="Bet Amount" required min="1">
-                        <button type="submit" class="btn btn-game">Roll Dice</button>
-                    </form>
-                </div>
-
-                <div class="game-box">
-                    <h4><i class="fas fa-bullseye"></i> Guess Number (1-5)</h4>
-                    <form action="/dashboard" method="POST">
-                        <input type="hidden" name="game" value="guess">
-                        <input type="number" name="bet" placeholder="Bet Amount" required min="1">
-                        <input type="number" name="guess" placeholder="Your Guess (1-5)" required min="1" max="5">
-                        <button type="submit" class="btn btn-game">Guess</button>
-                    </form>
-                </div>
-            </div>
-            {% if message %}
-            <p style="text-align: center; margin-top: 20px; color: #ffa657; font-weight: bold;">{{ message }}</p>
-            {% endif %}
-        </div>
-    </div>
-</div>
-
-</body>
-</html>
+<a href="/logout">Logout</a>
