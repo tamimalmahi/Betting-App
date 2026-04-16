@@ -33,7 +33,7 @@ def init_db():
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
 
-    # Multiplayer game rooms (Coin Flip, Dice Roll, Color Bet)
+    # FIX: Added creator column to track who created the room
     c.execute("""CREATE TABLE IF NOT EXISTS game_rooms (
         id SERIAL PRIMARY KEY,
         game_type TEXT NOT NULL,
@@ -42,10 +42,17 @@ def init_db():
         bet_amount INTEGER DEFAULT 0,
         result TEXT DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        ended_at TIMESTAMP DEFAULT NULL
+        ended_at TIMESTAMP DEFAULT NULL,
+        creator TEXT DEFAULT NULL
     )""")
 
-    # Each player's bet in a room
+    # If table already exists, try to add creator column (safe migration)
+    try:
+        c.execute("ALTER TABLE game_rooms ADD COLUMN IF NOT EXISTS creator TEXT DEFAULT NULL")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
     c.execute("""CREATE TABLE IF NOT EXISTS game_players (
         id SERIAL PRIMARY KEY,
         room_id INTEGER REFERENCES game_rooms(id),
@@ -56,6 +63,13 @@ def init_db():
         result TEXT DEFAULT 'pending',
         joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
+
+    # Add constraint: balance cannot go below 0 (safe migration)
+    try:
+        c.execute("ALTER TABLE users ADD CONSTRAINT balance_non_negative CHECK (balance >= 0)")
+        conn.commit()
+    except Exception:
+        conn.rollback()
 
     conn.commit()
     conn.close()
