@@ -14,6 +14,8 @@
                     <th>#</th>
                     <th>Type</th>
                     <th>Amount</th>
+                    <th>Status</th>
+                    <th>Date</th>
                 </tr>
             </thead>
             <tbody>
@@ -26,6 +28,12 @@
                         </span>
                     </td>
                     <td>${{ row[1] }}</td>
+                    <td>
+                        <span class="badge {% if row[2] == 'Approved' %}bg-success{% elif row[2] == 'Rejected' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
+                            {{ row[2] }}
+                        </span>
+                    </td>
+                    <td class="text-muted" style="font-size:0.85rem;">{{ row[3].strftime('%Y-%m-%d %H:%M') if row[3] else '-' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
