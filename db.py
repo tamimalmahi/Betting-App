@@ -3,32 +3,37 @@ import os
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
+
 def get_db():
-    return psycopg2.connect(DATABASE_URL)
+    # Render-er PostgreSQL URL sometimes starts with "postgres://" 
+    # but psycopg2 needs "postgresql://"
+    url = DATABASE_URL
+    if url and url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
+    return psycopg2.connect(url)
+
 
 def init_db():
     conn = get_db()
     c = conn.cursor()
-    # Purano table delete kore notun column shoho toiri koro
-    c.execute("DROP TABLE IF EXISTS transactions CASCADE")
-    c.execute("DROP TABLE IF EXISTS users CASCADE")
-    
-    c.execute("""CREATE TABLE users(
+
+    # CREATE TABLE IF NOT EXISTS — data DELETE hobe na, shudhu table na thakle banabe
+    c.execute("""CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
-        username TEXT UNIQUE,
-        password TEXT,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL,
         email TEXT DEFAULT '',
-        dob TEXT DEFAULT '',
         balance INTEGER DEFAULT 100
     )""")
 
-    c.execute("""CREATE TABLE transactions(
+    c.execute("""CREATE TABLE IF NOT EXISTS transactions (
         id SERIAL PRIMARY KEY,
-        username TEXT,
-        type TEXT,
-        amount INTEGER,
+        username TEXT NOT NULL,
+        type TEXT NOT NULL,
+        amount INTEGER NOT NULL,
         status TEXT DEFAULT 'Pending',
         timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
+
     conn.commit()
     conn.close()
