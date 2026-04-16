@@ -16,17 +16,19 @@
         th, td { padding: 13px 15px; text-align: left; border-bottom: 1px solid #30363d; }
         th { background-color: #21262d; color: #58a6ff; text-transform: uppercase; font-size: 13px; }
         tr:hover td { background: #1c2128; }
-        .btn { padding: 8px 15px; border-radius: 5px; text-decoration: none; font-weight: bold; font-size: 13px; display: inline-block; }
+        .btn { padding: 8px 15px; border-radius: 5px; text-decoration: none; font-weight: bold; font-size: 13px; display: inline-block; border: none; cursor: pointer; }
         .btn-approve { background: #238636; color: white; margin-right: 5px; }
         .btn-approve:hover { background: #2ea043; }
         .btn-reject { background: #da3633; color: white; }
         .btn-reject:hover { background: #f85149; }
         .btn-blue { background: #1f6feb; color: white; }
         .btn-orange { background: #f59e0b; color: #0d1117; }
+        .btn-logout { background: #21262d; color: #f85149; border: 1px solid #da3633; }
         .no-data { text-align: center; padding: 40px; color: #8b949e; }
         .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .logout-btn { color: #f85149; text-decoration: none; font-weight: bold; }
-        .nav-links { display: flex; gap: 12px; }
+        .nav-links { display: flex; gap: 12px; align-items: center; }
+        /* FIX: inline form for POST buttons */
+        .action-form { display: inline; }
     </style>
 </head>
 <body>
@@ -36,7 +38,10 @@
         <div class="nav-links">
             <a href="/admin/users" class="btn btn-blue">👥 Manage Users</a>
             <a href="/admin/all_transactions" class="btn btn-orange">📊 All Transactions</a>
-            <a href="/logout" class="logout-btn" style="line-height:2.5;">Logout</a>
+            <!-- FIX: Admin logout as POST -->
+            <form action="/admin/logout" method="POST" class="action-form">
+                <button type="submit" class="btn btn-logout">Logout</button>
+            </form>
         </div>
     </div>
 
@@ -73,8 +78,13 @@
                 <td style="text-transform:capitalize;">{{ req[2] }}</td>
                 <td style="color:#3fb950;">${{ req[3] }}</td>
                 <td>
-                    <a href="/admin/action/{{ req[0] }}/Approved" class="btn btn-approve">✅ Approve</a>
-                    <a href="/admin/action/{{ req[0] }}/Rejected" class="btn btn-reject">❌ Reject</a>
+                    <!-- FIX: Approve/Reject are now POST forms, not GET links -->
+                    <form action="/admin/action/{{ req[0] }}/Approved" method="POST" class="action-form">
+                        <button type="submit" class="btn btn-approve">✅ Approve</button>
+                    </form>
+                    <form action="/admin/action/{{ req[0] }}/Rejected" method="POST" class="action-form" style="margin-left:5px;">
+                        <button type="submit" class="btn btn-reject">❌ Reject</button>
+                    </form>
                 </td>
             </tr>
             {% else %}
