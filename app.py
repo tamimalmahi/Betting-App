@@ -1,17 +1,64 @@
-from flask import Flask, render_template, request, redirect, session, flash
-from werkzeug.security import generate_password_hash, check_password_hash
-import random
-
-from db import get_db, init_db
-import config
+from flask import Flask, render_template, request, redirect, session
+import mysql.connector
 
 app = Flask(__name__)
-app.secret_key = config.SECRET_KEY
+app.secret_key = "secret123"
 
-init_db()
+# DB connection
+def get_db():
+    return mysql.connector.connect(
+        host="localhost",
+        user="root",
+        password="",
+        database="betting_app"
+    )
 
-# -------- LOGIN --------
+# init DB
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(50),
+        password VARCHAR(50),
+        balance INT DEFAULT 0
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS transactions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(50),
+        type VARCHAR(20),
+        amount INT
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+# ---------------- REGISTER ----------------
 @app.route("/", methods=["GET", "POST"])
+def register():
+    if request.method == "POST":
+        user = request.form["username"]
+        pw = request.form["password"]
+
+        conn = get_db()
+        c = conn.cursor()
+
+        c.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (user, pw))
+        conn.commit()
+        conn.close()
+
+        return redirect("/login")
+
+    return render_template("register.html")
+
+# ---------------- LOGIN ----------------
+@app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         user = request.form["username"]
@@ -19,44 +66,23 @@ def login():
 
         conn = get_db()
         c = conn.cursor()
-        c.execute("SELECT * FROM users WHERE username=%s", (user,))
+
+        c.execute("SELECT * FROM users WHERE username=%s AND password=%s", (user, pw))
         data = c.fetchone()
+
         conn.close()
 
-        if data and check_password_hash(data[2], pw):
+        if data:
             session["user"] = user
             return redirect("/dashboard")
-        else:
-            flash("Invalid username or password!", "danger")
 
     return render_template("login.html")
 
-# -------- REGISTER --------
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    if request.method == "POST":
-        user = request.form["username"]
-        pw = generate_password_hash(request.form["password"])
-
-        conn = get_db()
-        c = conn.cursor()
-
-        try:
-            c.execute("INSERT INTO users (username, password) VALUES (%s, %s)", (user, pw))
-            conn.commit()
-        except:
-            return "User already exists!"
-
-        conn.close()
-        return redirect("/")
-
-    return render_template("register.html")
-
-# -------- DASHBOARD --------
+# ---------------- DASHBOARD ----------------
 @app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
     if "user" not in session:
-        return redirect("/")
+        return redirect("/login")
 
     conn = get_db()
     c = conn.cursor()
@@ -64,133 +90,40 @@ def dashboard():
     c.execute("SELECT balance FROM users WHERE username=%s", (session["user"],))
     balance = c.fetchone()[0]
 
-    message = ""
-
+    # HANDLE DEPOSIT / WITHDRAW
     if request.method == "POST":
-        game = request.form.get("game")
-        bet = int(request.form.get("bet", 0))
+        req_type = request.form.get("type")
+        amount = int(request.form.get("amount"))
 
-        if bet <= 0 or bet > balance:
-            message = "Invalid bet!"
-        else:
-            if game == "dice":
-                dice = random.randint(1, 6)
-                if dice >= 4:
-                    balance += bet
-                    message = f"Dice {dice} → WIN"
-                else:
-                    balance -= bet
-                    message = f"Dice {dice} → LOSE"
-
-            elif game == "guess":
-                guess = int(request.form.get("guess", 0))
-                number = random.randint(1, 5)
-
-                if guess == number:
-                    balance += bet * 2
-                    message = f"Correct! ({number})"
-                else:
-                    balance -= bet
-                    message = f"Wrong! ({number})"
-
-            c.execute("UPDATE users SET balance=%s WHERE username=%s",
-                      (balance, session["user"]))
+        if req_type == "deposit":
+            c.execute("UPDATE users SET balance = balance + %s WHERE username=%s",
+                      (amount, session["user"]))
             c.execute("INSERT INTO transactions (username, type, amount) VALUES (%s, %s, %s)",
-                      (session["user"], "game", bet))
+                      (session["user"], "deposit", amount))
 
-            conn.commit()
+        elif req_type == "withdraw":
+            if amount <= balance:
+                c.execute("UPDATE users SET balance = balance - %s WHERE username=%s",
+                          (amount, session["user"]))
+                c.execute("INSERT INTO transactions (username, type, amount) VALUES (%s, %s, %s)",
+                          (session["user"], "withdraw", amount))
 
-    conn.close()
-
-    return render_template("dashboard.html", balance=balance, message=message)
-
-# -------- DEPOSIT --------
-@app.route("/deposit", methods=["POST"])
-def deposit():
-    if "user" not in session:
-        return redirect("/")
-
-    amount = int(request.form["amount"])
-
-    conn = get_db()
-    c = conn.cursor()
-
-    c.execute("UPDATE users SET balance = balance + %s WHERE username=%s",
-              (amount, session["user"]))
-    c.execute("INSERT INTO transactions (username, type, amount) VALUES (%s, %s, %s)",
-              (session["user"], "deposit", amount))
-
-    conn.commit()
-    conn.close()
-
-    return redirect("/dashboard")
-
-# -------- WITHDRAW --------
-@app.route("/withdraw", methods=["POST"])
-def withdraw():
-    if "user" not in session:
-        return redirect("/")
-
-    amount = int(request.form["amount"])
-
-    conn = get_db()
-    c = conn.cursor()
-
-    c.execute("SELECT balance FROM users WHERE username=%s", (session["user"],))
-    balance = c.fetchone()[0]
-
-    if amount <= balance:
-        c.execute("UPDATE users SET balance = balance - %s WHERE username=%s",
-                  (amount, session["user"]))
-        c.execute("INSERT INTO transactions (username, type, amount) VALUES (%s, %s, %s)",
-                  (session["user"], "withdraw", amount))
-
-    conn.commit()
-    conn.close()
-
-    return redirect("/dashboard")
-
-# -------- PROFILE --------
-@app.route("/profile")
-def profile():
-    if "user" not in session:
-        return redirect("/")
-
-    conn = get_db()
-    c = conn.cursor()
-
-    c.execute("SELECT username, balance FROM users WHERE username=%s", (session["user"],))
-    user_data = c.fetchone()
+        conn.commit()
+        return redirect("/dashboard")
 
     conn.close()
+    return render_template("dashboard.html", balance=balance)
 
-    return render_template("profile.html", username=user_data[0], balance=user_data[1])
-
-# -------- HISTORY --------
-@app.route("/history")
-def history():
-    if "user" not in session:
-        return redirect("/")
-
-    conn = get_db()
-    c = conn.cursor()
-
-    c.execute("SELECT type, amount, id FROM transactions WHERE username=%s ORDER BY id DESC", (session["user"],))
-    transactions = c.fetchall()
-
-    conn.close()
-
-    return render_template("history.html", transactions=transactions)
-
-# -------- ADMIN --------
+# ---------------- ADMIN ----------------
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
     if request.method == "POST":
-        if request.form["username"] == config.ADMIN_USERNAME and request.form["password"] == config.ADMIN_PASSWORD:
+        user = request.form["username"]
+        pw = request.form["password"]
+
+        if user == "admin" and pw == "1234":
             session["admin"] = True
             return redirect("/admin")
-        else:
-            return render_template("admin.html", error="Invalid admin credentials!")
 
     if "admin" not in session:
         return render_template("admin.html")
@@ -198,21 +131,20 @@ def admin():
     conn = get_db()
     c = conn.cursor()
 
-    c.execute("SELECT SUM(balance) FROM users")
-    total_balance = c.fetchone()[0]
-
     c.execute("SELECT * FROM transactions")
     data = c.fetchall()
 
     conn.close()
 
-    return render_template("transactions.html", total_balance=total_balance, data=data)
+    return render_template("transactions.html", data=data)
 
-# -------- LOGOUT --------
+# ---------------- LOGOUT ----------------
 @app.route("/logout")
 def logout():
     session.clear()
-    return redirect("/")
+    return redirect("/login")
 
+# ---------------- RUN ----------------
 if __name__ == "__main__":
-    app.run()
+    init_db()
+    app.run(debug=True)
