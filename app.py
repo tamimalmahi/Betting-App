@@ -4,13 +4,11 @@ import sqlite3
 app = Flask(__name__)
 app.secret_key = "secret123"
 
-# DB
 def get_db():
     conn = sqlite3.connect("database.db")
     conn.row_factory = sqlite3.Row
     return conn
 
-# INIT DB
 def init_db():
     conn = get_db()
     c = conn.cursor()
@@ -36,7 +34,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-# REGISTER
 @app.route("/", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -45,7 +42,6 @@ def register():
 
         conn = get_db()
         c = conn.cursor()
-
         c.execute("INSERT INTO users (username, password) VALUES (?, ?)", (user, pw))
         conn.commit()
         conn.close()
@@ -54,7 +50,6 @@ def register():
 
     return render_template("register.html")
 
-# LOGIN
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -63,10 +58,8 @@ def login():
 
         conn = get_db()
         c = conn.cursor()
-
         c.execute("SELECT * FROM users WHERE username=? AND password=?", (user, pw))
         data = c.fetchone()
-
         conn.close()
 
         if data:
@@ -75,7 +68,6 @@ def login():
 
     return render_template("login.html")
 
-# DASHBOARD
 @app.route("/dashboard", methods=["GET", "POST"])
 def dashboard():
     if "user" not in session:
@@ -110,7 +102,6 @@ def dashboard():
     conn.close()
     return render_template("dashboard.html", balance=balance)
 
-# ADMIN
 @app.route("/admin", methods=["GET", "POST"])
 def admin():
     if request.method == "POST":
@@ -126,21 +117,17 @@ def admin():
 
     conn = get_db()
     c = conn.cursor()
-
     c.execute("SELECT * FROM transactions")
     data = c.fetchall()
-
     conn.close()
 
     return render_template("transactions.html", data=data)
 
-# LOGOUT
 @app.route("/logout")
 def logout():
     session.clear()
     return redirect("/login")
 
-# RUN
 if __name__ == "__main__":
     init_db()
     app.run()
