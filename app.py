@@ -138,12 +138,12 @@ def create_room(game_type):
         return redirect("/games")
 
     c.execute(
-        "INSERT INTO game_rooms (game_type, bet_amount, max_players) VALUES (%s, %s, 10) RETURNING id",
-        (game_type, bet)
+        "INSERT INTO game_rooms (game_type, bet_amount, max_players, creator) VALUES (%s, %s, 10, %s) RETURNING id",
+        (game_type, bet, session["user"])
     )
     room_id = c.fetchone()[0]
 
-    # FIX: Creator automatically joins the room with a default choice
+    # Creator automatically joins the room with a default choice
     default_choice = {"coinflip": "heads", "dice": "1", "colorbet": "red"}[game_type]
     c.execute(
         "UPDATE users SET balance = balance - %s WHERE username=%s",
@@ -153,8 +153,6 @@ def create_room(game_type):
         "INSERT INTO game_players (room_id, username, bet_amount, choice) VALUES (%s, %s, %s, %s)",
         (room_id, session["user"], bet, default_choice)
     )
-    # Store creator in game_rooms so only creator can start
-    c.execute("UPDATE game_rooms SET creator=%s WHERE id=%s", (session["user"], room_id))
     conn.commit()
     conn.close()
     flash("Room created! You joined with a default choice — you can change it before the game starts.", "info")
@@ -278,8 +276,9 @@ def start_game(room_id):
         flash("Cannot start game.", "danger")
         return redirect(f"/game/room/{room_id}")
 
-    # FIX: Only the room creator can start the game
-    creator = room[9] if len(room) > 9 else None  # creator column
+    # FIX: creator is at index 8 (columns: id, game_type, status, max_players, bet_amount,
+    #      result, created_at, ended_at, creator)
+    creator = room[8] if len(room) > 8 else None
     if creator and creator != session["user"]:
         conn.close()
         flash("Only the room creator can start the game.", "danger")
@@ -350,11 +349,9 @@ def dashboard():
             return redirect("/dashboard")
 
         if req_type == "withdraw":
-            # FIX: Check balance before allowing withdraw request
             if amount > balance:
                 flash("Insufficient balance for withdrawal.", "danger")
                 return redirect("/dashboard")
-            # FIX: Lock the amount immediately so user can't double-spend
             conn = get_db()
             c = conn.cursor()
             c.execute("SELECT balance FROM users WHERE username=%s", (session["user"],))
@@ -363,7 +360,6 @@ def dashboard():
                 conn.close()
                 flash("Insufficient balance for withdrawal.", "danger")
                 return redirect("/dashboard")
-            # Deduct immediately, refund if admin rejects
             c.execute("UPDATE users SET balance = balance - %s WHERE username=%s",
                       (amount, session["user"]))
             c.execute(
@@ -444,7 +440,6 @@ def history():
     )
     transactions = c.fetchall()
 
-    # FIX: Also show game history
     c.execute("""
         SELECT gr.game_type, gp.bet_amount, gp.choice, gp.result, gp.payout, gr.result as game_result, gr.ended_at
         FROM game_players gp
@@ -496,7 +491,6 @@ def admin_logout():
     return redirect("/admin")
 
 
-# FIX: Changed to POST to prevent CSRF
 @app.route("/admin/action/<int:txn_id>/<status>", methods=["POST"])
 def admin_action(txn_id, status):
     if "admin" not in session:
@@ -514,8 +508,7 @@ def admin_action(txn_id, status):
             if txn_type == "deposit":
                 c.execute("UPDATE users SET balance = balance + %s WHERE username=%s", (amount, username))
             elif txn_type == "withdraw":
-                # FIX: With new system, amount was already deducted. If approved, nothing to do.
-                # If rejected, refund the user.
+                # Amount already deducted when request was made; nothing extra needed on approval
                 pass
         elif status == "Rejected":
             if txn_type == "withdraw":
